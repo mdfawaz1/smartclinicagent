@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SmartClinic Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            padding-bottom: 20px;
+            border-bottom: 1px solid #e5e5e5;
+            margin-bottom: 20px;
+        }
+        .chat-container {
+            height: 400px;
+            overflow-y: auto;
+            border: 1px solid #e5e5e5;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 20px;
+            background-color: #fafafa;
+        }
+        .message {
+            margin-bottom: 15px;
+            padding: 10px;
+            border-radius: 10px;
+            max-width: 70%;
+        }
+        .user-message {
+            background-color: #dcf8c6;
+            align-self: flex-end;
+            margin-left: auto;
+        }
+        .agent-message {
+            background-color: #f1f0f0;
+        }
+        .message-container {
+            display: flex;
+            flex-direction: column;
+        }
+        .input-container {
+            display: flex;
+            gap: 10px;
+        }
+        #user-input {
+            flex: 1;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #e5e5e5;
+        }
+        button {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .debug-container {
+            margin-top: 20px;
+            border-top: 1px solid #e5e5e5;
+            padding-top: 20px;
+        }
+        .debug-toggle {
+            margin-bottom: 10px;
+        }
+        .debug-log {
+            display: none;
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #e5e5e5;
+            border-radius: 5px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .loading {
+            text-align: center;
+            margin: 20px 0;
+            font-style: italic;
+            color: #666;
+        }
+        .connection-status {
+            text-align: right;
+            font-size: 12px;
+            color: #666;
+            margin-top: -10px;
+            margin-bottom: 10px;
+        }
+        .status-connected {
+            color: green;
+        }
+        .status-disconnected {
+            color: red;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>SmartClinic Chat</h1>
+            <p>Ask questions about doctor specialties and services.</p>
+        </div>
+        
+        <div class="chat-container" id="chat-container">
+            <div class="message-container">
+                <div class="message agent-message">
+                    Hello! I'm the SmartClinic assistant. How can I help you today?
+                </div>
+            </div>
+        </div>
+        
+        <div class="input-container">
+            <input type="text" id="user-input" placeholder="Type your message here...">
+            <button onclick="sendMessage()">Send</button>
+        </div>
+
+        <div class="loading" id="loading" style="display: none;">
+            Processing your query...
+        </div>
+        
+        <div class="debug-container">
+            <div class="debug-toggle">
+                <input type="checkbox" id="show-debug" onclick="toggleDebug()">
+                <label for="show-debug">Show ReAct debug information</label>
+                <div class="connection-status" id="ws-status">WebSocket: <span class="status-disconnected">Disconnected</span></div>
+            </div>
+            <div class="debug-log" id="debug-log"></div>
+        </div>
+    </div>
+
+    <script>
+        // WebSocket connection for real-time logs
+        let socket;
+        let isConnected = false;
+
+        function connectWebSocket() {
+            // Create WebSocket connection
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws/logs`);
+            
+            // Connection opened
+            socket.addEventListener('open', (event) => {
+                isConnected = true;
+                document.getElementById('ws-status').innerHTML = 'WebSocket: <span class="status-connected">Connected</span>';
+            });
+            
+            // Listen for messages
+            socket.addEventListener('message', (event) => {
+                const data = JSON.parse(event.data);
+                if (data.log) {
+                    addToDebugLog(data.log);
+                }
+            });
+            
+            // Connection closed
+            socket.addEventListener('close', (event) => {
+                isConnected = false;
+                document.getElementById('ws-status').innerHTML = 'WebSocket: <span class="status-disconnected">Disconnected</span>';
+                setTimeout(connectWebSocket, 3000); // Try to reconnect every 3 seconds
+            });
+            
+            // Connection error
+            socket.addEventListener('error', (event) => {
+                isConnected = false;
+                document.getElementById('ws-status').innerHTML = 'WebSocket: <span class="status-disconnected">Error</span>';
+            });
+        }
+
+        // Connect WebSocket on page load
+        connectWebSocket();
+
+        // Enable sending messages by hitting Enter
+        document.getElementById("user-input").addEventListener("keyup", function(event) {
+            if (event.key === "Enter") {
+                sendMessage();
+            }
+        });
+
+        // Function to send messages to the API
+        async function sendMessage() {
+            const userInput = document.getElementById("user-input");
+            const message = userInput.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message to chat
+            addMessage(message, 'user');
+            
+            // Clear input
+            userInput.value = "";
+            
+            // Show loading indicator
+            document.getElementById("loading").style.display = "block";
+            
+            try {
+                // Send message to API
+                const response = await fetch('/api/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ message: message })
+                });
+                
+                const data = await response.json();
+                
+                // Add agent response to chat
+                addMessage(data.response, 'agent');
+            } catch (error) {
+                console.error('Error:', error);
+                addMessage('Sorry, there was an error processing your request.', 'agent');
+            }
+            
+            // Hide loading indicator
+            document.getElementById("loading").style.display = "none";
+        }
+
+        // Function to add messages to the chat container
+        function addMessage(text, sender) {
+            const chatContainer = document.getElementById("chat-container");
+            const messageContainer = document.createElement("div");
+            messageContainer.className = "message-container";
+            
+            const message = document.createElement("div");
+            message.className = `message ${sender}-message`;
+            message.innerText = text;
+            
+            messageContainer.appendChild(message);
+            chatContainer.appendChild(messageContainer);
+            
+            // Scroll to bottom
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+
+        // Function to toggle debug information
+        function toggleDebug() {
+            const debugLog = document.getElementById("debug-log");
+            const isVisible = document.getElementById("show-debug").checked;
+            debugLog.style.display = isVisible ? "block" : "none";
+            
+            // If turning on debug view and WebSocket is not connected, try to connect
+            if (isVisible && !isConnected) {
+                connectWebSocket();
+            }
+        }
+
+        // Function to add information to the debug log
+        function addToDebugLog(text) {
+            const debugLog = document.getElementById("debug-log");
+            const logEntry = document.createElement("div");
+            logEntry.innerHTML = text.replace(/\n/g, '<br>');
+            debugLog.appendChild(logEntry);
+            
+            const divider = document.createElement("hr");
+            debugLog.appendChild(divider);
+            
+            // Scroll to bottom
+            debugLog.scrollTop = debugLog.scrollHeight;
+        }
+    </script>
+</body>
+</html> 
