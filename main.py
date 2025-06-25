@@ -2,6 +2,7 @@
 """
 FastAPI server for the SmartClinic ReAct Agent.
 This script creates a RESTful API around the agent for HTTP interactions.
+The agent uses ReAct (Reason-Act-Observe) paradigm to handle specialty and appointment queries.
 """
 
 import os
@@ -77,7 +78,7 @@ agent = ReActAgent(
 # Create FastAPI app
 app = FastAPI(
     title="SmartClinic ReAct Agent API",
-    description="API for interacting with the hospital chatbot using ReAct paradigm",
+    description="API for interacting with the hospital chatbot for specialties and appointments using ReAct paradigm",
     version="1.0.0"
 )
 
@@ -150,6 +151,18 @@ async def chat(request: Request):
                             response = formatted_response
                     else:
                         response = "I couldn't find any matching specialties."
+                # For appointment API responses
+                elif "appointments" in response:
+                    appointments = response.get("appointments", [])
+                    if appointments:
+                        formatted_response = f"Found {len(appointments)} appointment(s):\n\n"
+                        for appt in appointments[:10]:  # Limit to 10 appointments
+                            formatted_response += f"• {appt.get('PATIENTNAME', 'Unknown patient')}: {appt.get('APPTDATE', 'Unknown date')} at {appt.get('STARTTIME', 'Unknown time')}\n"
+                        if len(appointments) > 10:
+                            formatted_response += f"\n...and {len(appointments) - 10} more."
+                        response = formatted_response
+                    else:
+                        response = "No appointments found."
                 else:
                     # Generic dictionary conversion
                     response = f"Here's what I found: {json.dumps(response)}"
@@ -235,6 +248,18 @@ async def websocket_endpoint(websocket: WebSocket):
                                     response = formatted_response
                             else:
                                 response = "I couldn't find any matching specialties."
+                        # For appointment API responses
+                        elif "appointments" in response:
+                            appointments = response.get("appointments", [])
+                            if appointments:
+                                formatted_response = f"Found {len(appointments)} appointment(s):\n\n"
+                                for appt in appointments[:10]:  # Limit to 10 appointments
+                                    formatted_response += f"• {appt.get('PATIENTNAME', 'Unknown patient')}: {appt.get('APPTDATE', 'Unknown date')} at {appt.get('STARTTIME', 'Unknown time')}\n"
+                                if len(appointments) > 10:
+                                    formatted_response += f"\n...and {len(appointments) - 10} more."
+                                response = formatted_response
+                            else:
+                                response = "No appointments found."
                         else:
                             # Generic dictionary conversion
                             response = f"Here's what I found: {json.dumps(response)}"
@@ -250,33 +275,58 @@ async def websocket_endpoint(websocket: WebSocket):
                 error_msg = f"Error processing message: {str(e)}"
                 logger.error(error_msg)
                 await websocket.send_json({"error": error_msg})
-            
+    
+    except WebSocketDisconnect:
+        logger.info("WebSocket client disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {str(e)}")
-        # Try to send error message if connection is still open
-        try:
-            await websocket.send_json({"error": f"An error occurred: {str(e)}"})
-        except:
-            pass
+    finally:
+        ws_handler.remove_client(websocket)
 
-# Mount a simple HTML interface
+# Mount static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
+
+# Set up Jinja2 templates
 templates = Jinja2Templates(directory="templates")
 
+# Serve chat interface
 @app.get("/", response_class=HTMLResponse)
 async def get_chat_interface(request: Request):
-    """Serve the chat interface HTML page"""
+    """
+    Serve the main chat interface
+    """
     return templates.TemplateResponse("chat.html", {"request": request})
 
-if __name__ == "__main__":
-    # Create necessary directories
-    os.makedirs("templates", exist_ok=True)
-    os.makedirs("static", exist_ok=True)
+# WebSocket endpoint for logging
+@app.websocket("/logs")
+async def websocket_logs(websocket: WebSocket):
+    """
+    WebSocket endpoint for streaming log messages to the frontend
+    """
+    await websocket.accept()
     
-    # Start the FastAPI server
-    logger.info("Starting SmartClinic ReAct Agent API on http://localhost:8000")
+    # Store reference to the WebSocket
+    ws_handler.add_client(websocket)
+    
+    # Send existing logs to the client
+    for log in ws_handler.logs:
+        await websocket.send_text(json.dumps({"log": log}))
+    
     try:
-        port = int(os.getenv("PORT", 8000))
-        uvicorn.run(app, host="0.0.0.0", port=port)
+        # Keep the connection open
+        while True:
+            await asyncio.sleep(1)
+    except WebSocketDisconnect:
+        ws_handler.remove_client(websocket)
     except Exception as e:
-        logger.error(f"Failed to start server: {str(e)}") 
+        logger.error(f"WebSocket log error: {str(e)}")
+        ws_handler.remove_client(websocket)
+
+# Run the FastAPI app if executed as script
+if __name__ == "__main__":
+    uvicorn.run(
+        "main:app",
+        host="0.0.0.0",
+        port=8000,
+        reload=True
+    ) 

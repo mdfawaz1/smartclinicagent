@@ -4,6 +4,7 @@ import os
 import logging
 import re
 from typing import Dict, List, Any, Optional
+from tools import Tools
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
@@ -33,9 +34,28 @@ class ReActAgent:
         self.specialty_api_token = specialty_api_token or os.getenv("SPECIALTY_API_TOKEN")
         self.debug_mode = debug_mode
         
-        # Available tools
+        # Initialize tools
+        self.tools_manager = Tools(
+            specialty_api_endpoint=specialty_api_endpoint,
+            specialty_api_token=self.specialty_api_token,
+            debug_mode=debug_mode
+        )
+        
+        # Available tools mapping - mapping tool names to methods in Tools class
         self.tools = {
-            "get_doctor_specialties": self._get_doctor_specialties
+            "get_doctor_specialties": self.tools_manager.get_doctor_specialties,
+            "activate_sso": self.tools_manager.activate_sso,
+            "search_by_id_number": self.tools_manager.search_by_id_number,
+            "get_today_appointments": self.tools_manager.get_today_appointments,
+            "get_ongoing_visits": self.tools_manager.get_ongoing_visits,
+            "init_appointments": self.tools_manager.init_appointments,
+            "get_user_dataset": self.tools_manager.get_user_dataset,
+            "get_session_slots": self.tools_manager.get_session_slots,
+            "create_walkin": self.tools_manager.create_walkin,
+            "get_appointment_number": self.tools_manager.get_appointment_number,
+            "create_visit": self.tools_manager.create_visit,
+            "get_patient_journey": self.tools_manager.get_patient_journey,
+            "get_appointment_followup": self.tools_manager.get_appointment_followup
         }
         
         # Initialize conversation history
@@ -47,6 +67,13 @@ class ReActAgent:
             "specialities", "department", "medical", "physician", "practitioner",
             "cardio", "heart", "dental", "teeth", "dentist", "neuro", "brain", 
             "ortho", "bone", "pediatric", "children", "emergency", "surgery"
+        ]
+        
+        # Keywords related to appointments for better detection
+        self.appointment_keywords = [
+            "appointment", "book", "schedule", "slot", "reserve", "visit", 
+            "consultation", "meet", "session", "timing", "available", 
+            "follow-up", "followup", "checkup", "walkin", "walk-in"
         ]
         
         logger.info("ReAct Agent initialized with debug_mode=%s", debug_mode)
@@ -64,7 +91,30 @@ class ReActAgent:
         """
         logger.info("\n=== REASONING ===")
         
-        # Force tool use for specialty-related queries
+        # First check if this is a general greeting or simple question
+        if self._is_greeting(user_query):
+            logger.info("Detected greeting or simple question, providing direct answer")
+            
+            return {
+                "reasoning": "The user is providing a greeting or asking a simple question. I can answer directly without using a tool.",
+                "use_tool": False,
+                "direct_answer": self._get_greeting_response(user_query)
+            }
+        
+        # Then check for appointment-related queries (higher priority)
+        if self._is_appointment_query(user_query):
+            logger.info("Detected appointment-related question, selecting appropriate appointment tool")
+            
+            # Select the appropriate tool based on the query 
+            tool_action = self._select_appointment_tool(user_query)
+            
+            return {
+                "reasoning": f"The user is asking about appointments. I should use the {tool_action['action_type']} tool.",
+                "use_tool": True,
+                "action": tool_action
+            }
+        
+        # Then check for specialty-related queries
         if self._is_specialty_query(user_query):
             logger.info("Detected specialty-related question, enforcing API call for ReAct flow")
             
@@ -80,8 +130,8 @@ class ReActAgent:
                 }
             }
         
-        # For non-specialty queries, use the LLM for reasoning but limit scope
-        logger.info("Query is not directly about doctor specialties. Checking with LLM...")
+        # For queries that don't match any patterns, use the LLM
+        logger.info("Query doesn't match specific patterns. Checking with LLM...")
         
         try:
             # Construct a prompt specifically designed to prevent hallucination
@@ -99,11 +149,52 @@ class ReActAgent:
             logger.error(f"Error in reasoning step: {str(e)}")
             # Provide a fallback reasoning response when LLM call fails
             return {
-                "reasoning": "Failed to process with LLM. Treating as out-of-scope query.",
+                "reasoning": "Failed to process with LLM. Providing a general response.",
                 "use_tool": False,
-                "out_of_scope": True,
-                "direct_answer": None
+                "direct_answer": "I'm here to help with questions about doctor specialties and appointments at our hospital. How can I assist you today?"
             }
+    
+    def _is_greeting(self, query: str) -> bool:
+        """
+        Determine if a query is a simple greeting or general question.
+        
+        Args:
+            query: The user query to check
+            
+        Returns:
+            Boolean indicating if the query is a greeting
+        """
+        query_lower = query.lower()
+        
+        greeting_patterns = [
+            r"^(hi|hello|hey|greetings|good morning|good afternoon|good evening)[\s\W]*$",
+            r"^how are you(\?)?$",
+            r"^what'?s up(\?)?$",
+            r"(nice to meet you|pleased to meet you)(\.)$"
+        ]
+        
+        for pattern in greeting_patterns:
+            if re.search(pattern, query_lower):
+                return True
+                
+        return False
+    
+    def _get_greeting_response(self, query: str) -> str:
+        """
+        Generate a response for greetings.
+        
+        Args:
+            query: The user's greeting
+            
+        Returns:
+            A greeting response
+        """
+        query_lower = query.lower()
+        
+        if re.search(r"how are you", query_lower):
+            return "I'm doing well, thank you for asking! I'm here to help with questions about doctor specialties and appointments at our hospital. How can I assist you today?"
+            
+        return "Hello! I'm the SmartClinic assistant. I can help you with information about doctor specialties and appointments at our hospital. How can I assist you today?"
     
     def _is_specialty_query(self, query: str) -> bool:
         """
@@ -117,6 +208,10 @@ class ReActAgent:
         """
         query_lower = query.lower()
         
+        # Avoid false positives by checking for appointment terms first
+        if any(word in query_lower for word in ["book", "schedule", "appointment", "slot", "visit", "time"]):
+            return False
+        
         # Check for follow-up queries about listing specialties
         full_list_patterns = [
             r"(yes|yeah|sure|ok|okay|full|complete|all).+(list|specialties|speciality|specialists)",
@@ -129,23 +224,163 @@ class ReActAgent:
             if re.search(pattern, query_lower):
                 return True
         
-        # Check for specialty keywords
-        if any(keyword in query_lower for keyword in self.specialty_keywords):
-            return True
+        # Check for specialty keywords but make sure they're not just part of a general question
+        specialty_keyword_match = False
+        for keyword in self.specialty_keywords:
+            if keyword in query_lower:
+                specialty_keyword_match = True
+                break
+                
+        if specialty_keyword_match:
+            # Check if it's a question about specialties, not just containing the word
+            specialty_patterns = [
+                r"(do|does|are|can|have).+(doctor|specialist|physician)",
+                r"(what|which).+(specialist|specialty|department)",
+                r"looking for.+(doctor|specialist)",
+                r"(find|need).+(doctor|specialist)",
+                r"(tell|inform).+(about|your).+(specialist|specialty|department)",
+                r"(what|which|any|is).+(doctor|specialist|department).+(available|have|for|treat)"
+            ]
             
-        # Check for specialty-related question patterns
-        specialty_patterns = [
-            r"(do|does|are|can|have).+(doctor|specialist|physician)",
-            r"(what|which).+(specialist|specialty|department)",
-            r"looking for.+(doctor|specialist)",
-            r"(find|need).+(doctor|specialist)"
+            for pattern in specialty_patterns:
+                if re.search(pattern, query_lower):
+                    return True
+                    
+            # If it's not an explicit question about specialties, be more conservative
+            if not any(word in query_lower for word in ["what", "which", "where", "how", "when", "do", "does", "are", "can", "have", "tell", "inform"]):
+                return False
+                
+        return specialty_keyword_match
+    
+    def _is_appointment_query(self, query: str) -> bool:
+        """
+        Determine if a query is related to appointments.
+        
+        Args:
+            query: The user query to check
+            
+        Returns:
+            Boolean indicating if the query is about appointments
+        """
+        query_lower = query.lower()
+        
+        # Direct appointment keywords that strongly indicate appointment intent
+        strong_appointment_indicators = [
+            "book appointment", "schedule appointment", "make appointment", 
+            "get appointment", "create appointment", "new appointment",
+            "appointment booking", "appointment schedule", "appointment availability",
+            "book a visit", "schedule a visit", "book a slot"
         ]
         
-        for pattern in specialty_patterns:
+        for indicator in strong_appointment_indicators:
+            if indicator in query_lower:
+                return True
+        
+        # Check for appointment-related question patterns
+        appointment_patterns = [
+            r"(book|schedule|make|get|create).+(appointment|visit|consultation)",
+            r"(available|free|open).+(slot|time|appointment)",
+            r"(when|how).+(see|meet|visit).+(doctor|specialist)",
+            r"(my|check).+(appointment|booking|reservation)",
+            r"walk.?in",
+            r"follow.?up",
+            r"(today|tomorrow).+(appointment|visit)",
+            r"(appointment|booking).+(system|process|available)"
+        ]
+        
+        for pattern in appointment_patterns:
             if re.search(pattern, query_lower):
                 return True
                 
+        # More general queries that mention both appointment-related terms
+        if any(word in query_lower for word in ["appointment", "booking", "schedule", "slot"]):
+            if any(word in query_lower for word in ["doctor", "hospital", "clinic", "medical", "visit"]):
+                return True
+                
         return False
+    
+    def _select_appointment_tool(self, query: str) -> Dict[str, Any]:
+        """
+        Select the appropriate appointment tool based on the query.
+        
+        Args:
+            query: The user query
+            
+        Returns:
+            Dictionary containing the action type and parameters
+        """
+        query_lower = query.lower()
+        
+        # Check for specific appointment actions
+        if any(term in query_lower for term in ["today", "current", "ongoing", "active"]):
+            if "appointment" in query_lower:
+                return {
+                    "action_type": "get_today_appointments",
+                    "parameters": {}
+                }
+            elif "visit" in query_lower:
+                return {
+                    "action_type": "get_ongoing_visits",
+                    "parameters": {}
+                }
+        
+        # Check for booking-related queries
+        if any(term in query_lower for term in ["book", "schedule", "make", "create", "get", "new"]):
+            if any(term in query_lower for term in ["walk in", "walk-in", "walkin"]):
+                return {
+                    "action_type": "create_walkin",
+                    "parameters": {
+                        "resource_id": "2",
+                        "session_id": "363",
+                        "session_date": "2025-06-25",
+                        "from_time": "07%3A10%3A00",
+                        "patient_id": "3598"
+                    }
+                }
+            else:
+                # For general booking, we need to get slots first
+                return {
+                    "action_type": "get_session_slots",
+                    "parameters": {
+                        "resource_id": "2",
+                        "session_date": "2025-06-25",
+                        "session_id": "363"
+                    }
+                }
+                
+        if any(term in query_lower for term in ["follow up", "follow-up", "followup"]):
+            return {
+                "action_type": "get_appointment_followup",
+                "parameters": {
+                    "patient_id": "3598",
+                    "date_from": "2025-06-25",
+                    "date_to": "2025-06-25"
+                }
+            }
+            
+        if any(term in query_lower for term in ["journey", "status", "progress"]):
+            return {
+                "action_type": "get_patient_journey",
+                "parameters": {
+                    "visit_id": "3502"
+                }
+            }
+            
+        if any(term in query_lower for term in ["available", "slot", "time"]):
+            return {
+                "action_type": "get_session_slots",
+                "parameters": {
+                    "resource_id": "2",
+                    "session_date": "2025-06-25",
+                    "session_id": "363"
+                }
+            }
+            
+        # Default to initialization if no specific query is matched
+        return {
+            "action_type": "init_appointments",
+            "parameters": {}
+        }
     
     def _act(self, action: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -227,7 +462,7 @@ class ReActAgent:
             # REASON: Determine what to do based on the user query
             reasoning_output = self._reason(user_query)
             
-            # HANDLE SPECIALTY QUERIES WITH TOOLS
+            # HANDLE TOOL-USING QUERIES
             if reasoning_output.get("use_tool", False):
                 # ACT: Execute the action
                 action_result = self._act(reasoning_output["action"])
@@ -252,34 +487,60 @@ class ReActAgent:
                 except Exception as e:
                     logger.error(f"Error in final reasoning: {str(e)}")
                     # Fallback if LLM fails during final reasoning
-                    if action_result["success"] and "specialties" in action_result["result"]:
-                        specialties = action_result["result"]["specialties"]
-                        if specialties:
-                            specialty_names = [s.get("DESCRIPTION", "Unknown") for s in specialties[:5]]
-                            final_answer = f"I found these specialties: {', '.join(specialty_names)}"
-                            if len(specialties) > 5:
-                                final_answer += f" and {len(specialties) - 5} more."
+                    if action_result["success"]:
+                        tool_type = reasoning_output["action"]["action_type"]
+                        
+                        if tool_type == "get_doctor_specialties" and "specialties" in action_result["result"]:
+                            specialties = action_result["result"]["specialties"]
+                            if specialties:
+                                specialty_names = [s.get("DESCRIPTION", "Unknown") for s in specialties[:5]]
+                                final_answer = f"I found these specialties: {', '.join(specialty_names)}"
+                                if len(specialties) > 5:
+                                    final_answer += f" and {len(specialties) - 5} more."
+                            else:
+                                final_answer = "I couldn't find any matching specialties for your query."
+                        # Handle appointment-related tools
+                        elif "create_walkin" in tool_type:
+                            final_answer = "I've scheduled a walk-in appointment for you. Your appointment has been confirmed."
+                        elif "get_today_appointments" in tool_type:
+                            final_answer = "I've retrieved today's appointments. You can view the details in the system."
+                        elif "get_ongoing_visits" in tool_type:
+                            final_answer = "I've checked the ongoing visits in the hospital. The information has been retrieved."
+                        elif "get_session_slots" in tool_type:
+                            final_answer = "I've found available appointment slots. You can select one for your appointment."
+                        elif "get_appointment_followup" in tool_type:
+                            final_answer = "I've checked your follow-up appointments. The information is now available."
+                        elif "get_patient_journey" in tool_type:
+                            final_answer = "I've retrieved your patient journey information. You can see your progress."
+                        elif "create_visit" in tool_type:
+                            final_answer = "I've created a visit record for your appointment. You're all set."
+                        elif "search_by_id_number" in tool_type:
+                            final_answer = "I've found your patient record using your ID number. Your information has been retrieved."
+                        elif "activate_sso" in tool_type:
+                            final_answer = "I've activated your SSO account. You can now log in with your credentials."
                         else:
-                            final_answer = "I couldn't find any matching specialties for your query."
+                            # Generic response for other tools
+                            final_answer = f"I processed your request about {tool_type.replace('_', ' ')}. The operation was successful."
                     else:
-                        final_answer = "I'm sorry, I encountered an error while processing your request about doctor specialties."
+                        final_answer = "I'm sorry, I encountered an error while processing your request."
             
-            # HANDLE NON-SPECIALTY QUERIES WITH LIMITED SCOPE
+            # HANDLE DIRECT ANSWER QUERIES
+            elif "direct_answer" in reasoning_output and reasoning_output["direct_answer"]:
+                logger.info("\n=== DIRECT ANSWER ===")
+                final_answer = reasoning_output["direct_answer"]
+                logger.info(final_answer)
+            
+            # HANDLE OUT-OF-SCOPE QUERIES
+            elif reasoning_output.get("out_of_scope", False):
+                logger.info("\n=== OUT OF SCOPE ===")
+                final_answer = "I'm currently focused on providing information about doctor specialties and appointments at our hospital. I don't have information about other topics yet. How can I help you with our medical specialists or scheduling appointments?"
+                logger.info(final_answer)
+            
+            # FALLBACK FOR ANY OTHER CASE
             else:
-                # For questions not about specialties, only answer if within scope
-                logger.info("\n=== DIRECT ANSWER (NO TOOL USED) ===")
-                
-                # Get the direct answer from the reasoning step
-                direct_answer = reasoning_output.get("direct_answer", None)
-                
-                # If no direct answer or unauthorized topic, provide scope limitation response
-                if not direct_answer or reasoning_output.get("out_of_scope", False):
-                    final_answer = "I'm currently focused on providing information about doctor specialties at our hospital. I don't have information about other topics yet. Is there something specific about our medical specialists I can help you with?"
-                else:
-                    final_answer = direct_answer
-            
-            logger.info("\n=== FINAL ANSWER ===")
-            logger.info(final_answer)
+                logger.info("\n=== FALLBACK RESPONSE ===")
+                final_answer = "I'm here to help with questions about doctor specialties and appointments at our hospital. How can I assist you today?"
+                logger.info(final_answer)
             
             # Add agent response to conversation history
             self.conversation_history.append({"role": "assistant", "content": final_answer})
@@ -289,7 +550,7 @@ class ReActAgent:
         except Exception as e:
             # Global error handling to ensure we always return a string
             logger.error(f"Unexpected error in chat flow: {str(e)}")
-            error_message = "I'm sorry, I encountered an unexpected error. Please try asking about our doctor specialties again."
+            error_message = "I'm sorry, I encountered an unexpected error. Please try asking about our doctor specialties or appointments again."
             self.conversation_history.append({"role": "assistant", "content": error_message})
             return error_message
     
@@ -304,22 +565,53 @@ class ReActAgent:
             Formatted prompt for the LLM
         """
         system_message = """
-        You are an intelligent hospital assistant that helps users with their queries about doctor specialties only.
+        You are an intelligent hospital assistant that helps users with their queries about doctor specialties and appointments only.
         
         Your task is to analyze the user's query and decide whether to use a tool or answer directly.
         
         Currently, you have access to the following tools:
         
+        SPECIALTY TOOLS:
         1. get_doctor_specialties: Retrieves information about doctor specialties
         
-        IMPORTANT: You should ONLY answer questions about doctor specialties in the hospital. For ANY other topic:
+        APPOINTMENT TOOLS:
+        2. activate_sso: Activates Single Sign-On for a user
+        3. search_by_id_number: Searches for a patient by ID number
+        4. get_today_appointments: Retrieves today's appointments
+        5. get_ongoing_visits: Retrieves ongoing patient visits
+        6. init_appointments: Initializes the appointments system
+        7. get_user_dataset: Retrieves user dataset for appointments
+        8. get_session_slots: Retrieves appointment session slots
+        9. create_walkin: Creates a walk-in appointment
+        10. get_appointment_number: Retrieves appointment numbers
+        11. create_visit: Creates a patient visit
+        12. get_patient_journey: Retrieves patient journey information
+        13. get_appointment_followup: Retrieves follow-up appointment information
+        
+        IMPORTANT: You should ONLY answer questions about doctor specialties and appointments in the hospital. For ANY other topic:
         1. You must set "out_of_scope" to true
         2. You should NOT provide an answer, as you don't have verified information on other topics
-        3. Your response should direct the user back to asking about doctor specialties
+        3. Your response should direct the user back to asking about doctor specialties or appointments
+        
+        EXAMPLES OF SPECIALTY QUERIES:
+        - "What specialties do you have?"
+        - "Do you have cardiologists?"
+        - "Tell me about your orthopedic department"
+        
+        EXAMPLES OF APPOINTMENT QUERIES:
+        - "I want to book an appointment"
+        - "Show me today's appointments"
+        - "What appointment slots are available?"
+        - "How do I schedule a follow-up?"
+        
+        EXAMPLES OF OUT-OF-SCOPE QUERIES:
+        - "What medications should I take for headaches?"
+        - "How much does surgery cost?"
+        - "What's the weather today?"
         
         For each query, you should:
         1. Think about what the user is asking for
-        2. Decide if it's about doctor specialties (if not, mark it out of scope)
+        2. Decide if it's about doctor specialties or appointments (if not, mark it out of scope)
         3. Format your response as JSON with the following structure:
         
         If you need to use a tool:
@@ -327,19 +619,19 @@ class ReActAgent:
             "reasoning": "your step-by-step reasoning",
             "use_tool": true,
             "action": {
-                "action_type": "get_doctor_specialties",
-                "parameters": {"query": "relevant search term"}
+                "action_type": "[one of the tool names]",
+                "parameters": {"param1": "value1", "param2": "value2"}
             }
         }
         
-        If you can answer directly (ONLY for basic doctor specialty information):
+        If you can answer directly (ONLY for basic specialty/appointment information or greetings):
         {
             "reasoning": "your step-by-step reasoning",
             "use_tool": false,
-            "direct_answer": "your answer to the user's query about doctor specialties"
+            "direct_answer": "your answer to the user's query about doctor specialties or appointments"
         }
         
-        If the query is NOT about doctor specialties:
+        If the query is NOT about doctor specialties or appointments:
         {
             "reasoning": "your step-by-step reasoning",
             "use_tool": false,
@@ -353,7 +645,7 @@ class ReActAgent:
         ]
         
         # Add conversation history (limited to last few exchanges for context)
-        for message in self.conversation_history[-6:]:
+        for message in self.conversation_history[-4:]:
             messages.append(message)
             
         # Add the current query
@@ -376,17 +668,17 @@ class ReActAgent:
             Formatted prompt for the LLM
         """
         system_message = """
-        You are an intelligent hospital assistant that helps users with their queries about doctor specialties.
+        You are an intelligent hospital assistant that helps users with their queries about doctor specialties and appointments.
         
         Based on the user's query, the reasoning, and the observation from using a tool,
-        formulate a helpful, concise, and informative response about doctor specialties.
+        formulate a helpful, concise, and informative response.
         
         IMPORTANT RULES:
         1. Only respond with information that is directly supported by the observation
         2. If the observation doesn't provide enough information to answer, say so clearly
-        3. Never make up or hallucinate information about specialists or departments
-        4. If specialty information is found, present it in a clear, helpful way
-        5. If no relevant specialty is found, politely inform the user
+        3. Never make up or hallucinate information about specialists, departments, or appointments
+        4. If relevant information is found, present it in a clear, helpful way
+        5. If no relevant information is found, politely inform the user
         
         Provide only the final answer without mentioning the reasoning process or the fact that you used a tool.
         """
@@ -479,7 +771,7 @@ class ReActAgent:
                 "reasoning": "Failed to parse LLM response",
                 "use_tool": False,
                 "out_of_scope": True,
-                "direct_answer": "I'm having trouble processing your question. Could you please ask specifically about doctor specialties available at our hospital?"
+                "direct_answer": "I'm having trouble processing your question. Could you please ask specifically about doctor specialties or appointments available at our hospital?"
             }
     
     def _extract_final_answer(self, llm_response: Dict[str, Any]) -> str:
@@ -496,86 +788,4 @@ class ReActAgent:
             return llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
         except Exception as e:
             logger.error(f"Error extracting final answer: {str(e)}")
-            return "I'm sorry, I encountered an error while processing your request about doctor specialties."
-    
-    def _get_doctor_specialties(self, parameters: Dict[str, str]) -> Dict[str, Any]:
-        """
-        Get doctor specialties from the API.
-        
-        Args:
-            parameters: Parameters for the API call (e.g., {"query": "cardio"})
-            
-        Returns:
-            Doctor specialty information
-        """
-        # Check if we have the API token
-        if not self.specialty_api_token:
-            logger.error("Specialty API token not provided")
-            raise ValueError("Specialty API token not provided")
-        
-        headers = {
-            "Authorization": f"Bearer {self.specialty_api_token}"
-        }
-        
-        try:
-            logger.info(f"Making API request to {self.specialty_api_endpoint}")
-            response = requests.get(
-                self.specialty_api_endpoint, 
-                headers=headers
-            )
-            response.raise_for_status()
-            
-            # For demonstration/debug, log the raw response
-            if self.debug_mode:
-                logger.info(f"Raw API response: {json.dumps(response.json(), indent=2)[:500]}...")
-            
-            # Get all specialties from the response
-            all_specialties = response.json().get("Codes", {}).get("SPECIALITY", [])
-            logger.info(f"Retrieved {len(all_specialties)} specialties from API")
-            
-            # If a query parameter is provided, filter the results
-            query = parameters.get("query", "").upper()
-            
-            # Check if this is a request for the full list
-            full_list_terms = ["FULL", "ALL", "COMPLETE", "YES", "YEAH", "SURE", "LIST", "SHOW", "MORE"]
-            is_full_list_request = any(term in query.split() for term in full_list_terms)
-            
-            # Check if this is a general query about available specialties
-            general_query_terms = ["AVAILABLE", "LIST", "ALL", "WHAT", "WHICH", "HAVE", "OFFER"]
-            is_general_query = any(term in query for term in general_query_terms)
-            
-            # For full list requests or general queries, return all specialties
-            if is_full_list_request or is_general_query:
-                logger.info("Returning all specialties (full list request or general query)")
-                return {"specialties": all_specialties, "is_full_list": True}
-            
-            # For specific specialty queries
-            if query:
-                # Extract query terms for more flexible matching
-                query_terms = query.split()
-                
-                # Filter out common words that aren't helpful for matching
-                stop_words = ["WHAT", "WHICH", "ARE", "IS", "THE", "DO", "DOES", "YOU", "HAVE", "AVAILABLE", "THERE", "ANY", "FOR", "A", "AN", "IN", "AT", "BY", "WITH", "ABOUT", "PLEASE", "CAN", "COULD", "WOULD"]
-                query_terms = [term for term in query_terms if term not in stop_words]
-                
-                logger.info(f"Filtering specialties by query terms: {query_terms}")
-                filtered_specialties = []
-                
-                # Check each specialty against each query term
-                for specialty in all_specialties:
-                    desc = specialty.get("DESCRIPTION", "").upper()
-                    
-                    # Match if any term is contained in the description
-                    if any(term in desc for term in query_terms):
-                        filtered_specialties.append(specialty)
-                
-                logger.info(f"Found {len(filtered_specialties)} matching specialties")
-                return {"specialties": filtered_specialties}
-            else:
-                # For empty queries, return all specialties
-                logger.info("Returning all specialties (no specific terms)")
-                return {"specialties": all_specialties}
-                
-        except Exception as e:
-            logger.error(f"Error calling specialty API: {str(e)}")
-            return {"error": str(e)} 
+            return "I'm sorry, I encountered an error while processing your request." 
