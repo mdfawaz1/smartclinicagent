@@ -287,17 +287,26 @@ class Tools:
         """
         if parameters is None:
             parameters = {}
+        
+        # For booking appointments, we should ask the user for preferences
+        # Only auto-fill if this seems like a general query
+        missing_params = []
+        if not parameters.get("resource_id"):
+            missing_params.append("resource_id")
+        if not parameters.get("session_date"):
+            missing_params.append("session_date") 
+        if not parameters.get("session_id"):
+            missing_params.append("session_id")
             
-        # Auto-fill missing parameters with defaults
-        today = datetime.now().strftime("%Y-%m-%d")
-        parameters.setdefault("resource_id", "2")
-        parameters.setdefault("session_date", today)
-        parameters.setdefault("session_id", "363")
+        # If any key parameters are missing, ask the user
+        if missing_params:
+            return ParameterCollector.get_parameter_requirements("get_session_slots")
         
         if not ParameterCollector.validate_parameters("get_session_slots", parameters):
             return ParameterCollector.get_parameter_requirements("get_session_slots")
             
         try:
+            today = datetime.now().strftime("%Y-%m-%d")
             resource_id = parameters.get("resource_id", "2")
             session_date = parameters.get("session_date", today)
             session_id = parameters.get("session_id", "363")
@@ -326,8 +335,21 @@ class Tools:
         """
         if parameters is None:
             parameters = {}
+        
+        # For creating appointments, we should ask for key details
+        missing_params = []
+        if not parameters.get("patient_id"):
+            missing_params.append("patient_id")
+        if not parameters.get("resource_id"):
+            missing_params.append("resource_id")
+        if not parameters.get("session_date"):
+            missing_params.append("session_date")
             
-        # Auto-fill missing parameters with defaults
+        # If key parameters are missing, ask the user
+        if missing_params:
+            return ParameterCollector.get_parameter_requirements("create_walkin")
+        
+        # Auto-fill less critical parameters with defaults
         today = datetime.now().strftime("%Y-%m-%d")
         parameters.setdefault("resource_id", "2")
         parameters.setdefault("session_id", "363")
@@ -506,24 +528,25 @@ class ParameterCollector:
                 "tool_name": tool_name,
                 "required_parameters": ["resource_id", "session_date", "session_id"],
                 "parameter_descriptions": {
-                    "resource_id": "Doctor/Resource ID",
+                    "resource_id": "Doctor/Resource ID (e.g., 2 for Dr. Clement Tan)",
                     "session_date": "Session date (YYYY-MM-DD format)",
-                    "session_id": "Session ID"
+                    "session_id": "Session ID (e.g., 363 for PM session)"
                 },
-                "user_message": "I can show available appointment slots with default settings. If you need specific slots, please provide: Doctor/Resource ID, session date (YYYY-MM-DD), and session ID."
+                "user_message": "To show available appointment slots, I need to know:\n• Which doctor? (Resource ID - e.g., 2 for Dr. Clement Tan)\n• What date? (YYYY-MM-DD format)\n• Which session? (Session ID - e.g., 363 for PM session)\n\nPlease provide these details so I can find the best available slots for you."
             },
             "create_walkin": {
                 "needs_parameters": True,
                 "tool_name": tool_name,
-                "required_parameters": ["resource_id", "session_id", "session_date", "from_time", "patient_id"],
+                "required_parameters": ["patient_id", "resource_id", "session_date"],
+                "optional_parameters": ["session_id", "from_time"],
                 "parameter_descriptions": {
-                    "resource_id": "Doctor/Resource ID",
-                    "session_id": "Session ID",
+                    "patient_id": "Patient ID (required)",
+                    "resource_id": "Doctor/Resource ID (e.g., 2 for Dr. Clement Tan)",
                     "session_date": "Appointment date (YYYY-MM-DD format)",
-                    "from_time": "Preferred time (HH:MM:SS format)",
-                    "patient_id": "Patient ID"
+                    "session_id": "Session ID (optional, defaults to 363)",
+                    "from_time": "Preferred time (optional, defaults to 07:10:00)"
                 },
-                "user_message": "I can create a walk-in appointment with default settings. If you need specific details, please provide: Doctor/Resource ID, session ID, appointment date, preferred time, and patient ID."
+                "user_message": "To create a walk-in appointment, I need:\n• Patient ID (who is the appointment for?)\n• Which doctor? (Resource ID - e.g., 2 for Dr. Clement Tan)\n• What date? (YYYY-MM-DD format)\n\nOptionally, you can specify session ID and preferred time. Please provide at least the required details."
             },
             "create_visit": {
                 "needs_parameters": True,

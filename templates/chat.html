@@ -713,6 +713,34 @@
                 `);
             }
             
+            // Doctor/Resource ID quick actions
+            if (text.toLowerCase().includes("doctor") && text.toLowerCase().includes("resource id")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Available doctors:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('Doctor 2 (Dr. Clement Tan) for 2025-06-25 session 363')">Dr. Clement Tan (ID: 2)</button>
+                            <button class="param-btn" onclick="fillParameter('Doctor 3 for 2025-06-25 session 364')">Doctor ID: 3</button>
+                            <button class="param-btn" onclick="fillParameter('Doctor 4 for 2025-06-25 session 365')">Doctor ID: 4</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            // Session ID quick actions
+            if (text.toLowerCase().includes("session id")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Session options:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('Session 363 (PM session)')">363 (PM Session)</button>
+                            <button class="param-btn" onclick="fillParameter('Session 364 (AM session)')">364 (AM Session)</button>
+                            <button class="param-btn" onclick="fillParameter('Session 365 (Evening)')">365 (Evening)</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
             if (quickActions.length > 0) {
                 formattedText += '<br><br>' + quickActions.join('<br>');
             }
