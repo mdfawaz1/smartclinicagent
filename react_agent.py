@@ -408,7 +408,25 @@ class ReActAgent:
         # Execute the corresponding tool function
         try:
             logger.info("Calling API...")
-            result = self.tools[action["action_type"]](action.get("parameters", {}))
+            
+            # Handle parameter collection for tools that need it
+            parameters = action.get("parameters", {})
+            tool_name = action["action_type"]
+            
+            # Check if this tool requires parameters and if they're missing
+            if self._tool_requires_parameters(tool_name) and not self._has_required_parameters(tool_name, parameters):
+                # Return a parameter request instead of calling the tool
+                from tools import ParameterCollector
+                prompt = ParameterCollector.get_parameter_prompt(tool_name)
+                return {
+                    "success": False,
+                    "needs_parameters": True,
+                    "parameter_prompt": prompt,
+                    "tool_name": tool_name,
+                    "result": None
+                }
+            
+            result = self.tools[action["action_type"]](parameters)
             return {
                 "success": True,
                 "result": result
@@ -788,4 +806,51 @@ class ReActAgent:
             return llm_response.get("choices", [{}])[0].get("message", {}).get("content", "")
         except Exception as e:
             logger.error(f"Error extracting final answer: {str(e)}")
-            return "I'm sorry, I encountered an error while processing your request." 
+            return "I'm sorry, I encountered an error while processing your request."
+    
+    def _tool_requires_parameters(self, tool_name: str) -> bool:
+        """
+        Check if a tool requires user input parameters.
+        
+        Args:
+            tool_name: Name of the tool
+            
+        Returns:
+            True if the tool requires parameters, False otherwise
+        """
+        tools_requiring_parameters = {
+            "search_by_id_number", "get_user_dataset", "get_session_slots", 
+            "create_walkin", "create_visit", "get_patient_journey", 
+            "get_appointment_followup"
+        }
+        return tool_name in tools_requiring_parameters
+    
+    def _has_required_parameters(self, tool_name: str, parameters: Dict[str, Any]) -> bool:
+        """
+        Check if all required parameters are present for a tool.
+        
+        Args:
+            tool_name: Name of the tool
+            parameters: Parameters provided
+            
+        Returns:
+            True if all required parameters are present, False otherwise
+        """
+        required_params = {
+            "search_by_id_number": ["id_number"],
+            "get_user_dataset": ["date_from", "date_to", "resource_type"],
+            "get_session_slots": ["resource_id", "session_date", "session_id"],
+            "create_walkin": ["resource_id", "session_id", "session_date", "from_time", "patient_id"],
+            "create_visit": ["appointment_id"],
+            "get_patient_journey": ["visit_id"],
+            "get_appointment_followup": ["patient_id", "date_from", "date_to"]
+        }
+        
+        if tool_name not in required_params:
+            return True  # No parameters required
+        
+        for param in required_params[tool_name]:
+            if param not in parameters or not parameters[param]:
+                return False
+        
+        return True
