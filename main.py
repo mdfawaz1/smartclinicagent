@@ -112,63 +112,10 @@ async def chat(request: Request):
         # Process the message with the ReAct Agent
         response = agent.chat(user_message)
         
-        # Ensure the response is a string
+        # Ensure the response is a string (it should be now with the updated agent)
         if not isinstance(response, str):
             logger.warning(f"Agent returned non-string response: {type(response)}. Converting to string.")
-            if isinstance(response, dict):
-                # For specialty API responses, extract useful information
-                if "specialties" in response:
-                    specialty_list = []
-                    for specialty in response.get("specialties", []):
-                        desc = specialty.get("DESCRIPTION", "Unknown specialty")
-                        specialty_list.append(desc)
-                    
-                    if specialty_list:
-                        # Check if this is a full list request
-                        is_full_list = response.get("is_full_list", False)
-                        
-                        # Format the response for better readability
-                        if len(specialty_list) > 10 and not is_full_list:
-                            # Show first 5 specialties if there are many and not a full list request
-                            formatted_response = f"We have {len(specialty_list)} medical specialties available. Here are some examples:\n\n"
-                            for i in range(min(5, len(specialty_list))):
-                                formatted_response += f"• {specialty_list[i]}\n"
-                            
-                            formatted_response += f"\nWould you like to see the full list of specialties or are you looking for a specific one?"
-                            response = formatted_response
-                        else:
-                            # Show all specialties for full list requests or when there are few specialties
-                            if is_full_list:
-                                formatted_response = f"Here's the complete list of all {len(specialty_list)} specialties:\n\n"
-                            else:
-                                formatted_response = "Here are all our available specialties:\n\n"
-                            
-                            # Sort alphabetically for better readability
-                            specialty_list.sort()
-                            
-                            for specialty in specialty_list:
-                                formatted_response += f"• {specialty}\n"
-                            response = formatted_response
-                    else:
-                        response = "I couldn't find any matching specialties."
-                # For appointment API responses
-                elif "appointments" in response:
-                    appointments = response.get("appointments", [])
-                    if appointments:
-                        formatted_response = f"Found {len(appointments)} appointment(s):\n\n"
-                        for appt in appointments[:10]:  # Limit to 10 appointments
-                            formatted_response += f"• {appt.get('PATIENTNAME', 'Unknown patient')}: {appt.get('APPTDATE', 'Unknown date')} at {appt.get('STARTTIME', 'Unknown time')}\n"
-                        if len(appointments) > 10:
-                            formatted_response += f"\n...and {len(appointments) - 10} more."
-                        response = formatted_response
-                    else:
-                        response = "No appointments found."
-                else:
-                    # Generic dictionary conversion
-                    response = f"Here's what I found: {json.dumps(response)}"
-            else:
-                # For any other non-string type
-                response = str(response)
+            response = str(response)
         
         return JSONResponse(content={"response": response})
         
@@ -209,63 +156,10 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 response = agent.chat(user_message)
                 
-                # Ensure the response is a string
+                # Ensure the response is a string (it should be now with the updated agent)
                 if not isinstance(response, str):
                     logger.warning(f"Agent returned non-string response: {type(response)}. Converting to string.")
-                    if isinstance(response, dict):
-                        # For specialty API responses, extract useful information
-                        if "specialties" in response:
-                            specialty_list = []
-                            for specialty in response.get("specialties", []):
-                                desc = specialty.get("DESCRIPTION", "Unknown specialty")
-                                specialty_list.append(desc)
-                            
-                            if specialty_list:
-                                # Check if this is a full list request
-                                is_full_list = response.get("is_full_list", False)
-                                
-                                # Format the response for better readability
-                                if len(specialty_list) > 10 and not is_full_list:
-                                    # Show first 5 specialties if there are many and not a full list request
-                                    formatted_response = f"We have {len(specialty_list)} medical specialties available. Here are some examples:\n\n"
-                                    for i in range(min(5, len(specialty_list))):
-                                        formatted_response += f"• {specialty_list[i]}\n"
-                                    
-                                    formatted_response += f"\nWould you like to see the full list of specialties or are you looking for a specific one?"
-                                    response = formatted_response
-                                else:
-                                    # Show all specialties for full list requests or when there are few specialties
-                                    if is_full_list:
-                                        formatted_response = f"Here's the complete list of all {len(specialty_list)} specialties:\n\n"
-                                    else:
-                                        formatted_response = "Here are all our available specialties:\n\n"
-                                    
-                                    # Sort alphabetically for better readability
-                                    specialty_list.sort()
-                                    
-                                    for specialty in specialty_list:
-                                        formatted_response += f"• {specialty}\n"
-                                    response = formatted_response
-                            else:
-                                response = "I couldn't find any matching specialties."
-                        # For appointment API responses
-                        elif "appointments" in response:
-                            appointments = response.get("appointments", [])
-                            if appointments:
-                                formatted_response = f"Found {len(appointments)} appointment(s):\n\n"
-                                for appt in appointments[:10]:  # Limit to 10 appointments
-                                    formatted_response += f"• {appt.get('PATIENTNAME', 'Unknown patient')}: {appt.get('APPTDATE', 'Unknown date')} at {appt.get('STARTTIME', 'Unknown time')}\n"
-                                if len(appointments) > 10:
-                                    formatted_response += f"\n...and {len(appointments) - 10} more."
-                                response = formatted_response
-                            else:
-                                response = "No appointments found."
-                        else:
-                            # Generic dictionary conversion
-                            response = f"Here's what I found: {json.dumps(response)}"
-                    else:
-                        # For any other non-string type
-                        response = str(response)
+                    response = str(response)
                 
                 # Send response back to client
                 await websocket.send_json({"response": response})

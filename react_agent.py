@@ -413,20 +413,20 @@ class ReActAgent:
             parameters = action.get("parameters", {})
             tool_name = action["action_type"]
             
-            # Check if this tool requires parameters and if they're missing
-            if self._tool_requires_parameters(tool_name) and not self._has_required_parameters(tool_name, parameters):
-                # Return a parameter request instead of calling the tool
-                from tools import ParameterCollector
-                prompt = ParameterCollector.get_parameter_prompt(tool_name)
+            # Call the tool with the parameters
+            result = self.tools[action["action_type"]](parameters)
+            
+            # Check if the result indicates missing parameters
+            if isinstance(result, dict) and result.get("needs_parameters", False):
                 return {
                     "success": False,
                     "needs_parameters": True,
-                    "parameter_prompt": prompt,
+                    "parameter_prompt": result.get("user_message", "Additional information required"),
                     "tool_name": tool_name,
+                    "parameter_requirements": result,
                     "result": None
                 }
             
-            result = self.tools[action["action_type"]](parameters)
             return {
                 "success": True,
                 "result": result
@@ -484,6 +484,16 @@ class ReActAgent:
             if reasoning_output.get("use_tool", False):
                 # ACT: Execute the action
                 action_result = self._act(reasoning_output["action"])
+                
+                # Check if the action needs parameters
+                if not action_result["success"] and action_result.get("needs_parameters", False):
+                    logger.info("\n=== PARAMETER REQUIREMENTS ===")
+                    logger.info("Tool requires parameters from user")
+                    final_answer = action_result.get("parameter_prompt", "I need additional information to complete this request.")
+                    
+                    # Add agent response to conversation history
+                    self.conversation_history.append({"role": "assistant", "content": final_answer})
+                    return final_answer
                 
                 # OBSERVE: Process the result of the action
                 observation = self._observe(action_result)

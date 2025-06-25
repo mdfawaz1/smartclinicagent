@@ -45,13 +45,13 @@ class Tools:
 
         Args:
             parameters: Parameters for the API call (e.g., {"query": "cardio"}).
-               If None, prompt user for inputs.
+               If None, returns all specialties.
 
         Returns:
             Doctor specialty information.
         """
         if parameters is None:
-            parameters = self._collect_specialty_parameters()
+            parameters = {"query": "all available specialties"}
 
         try:
             logger.info(f"Making API request to {self.specialty_api_endpoint}")
@@ -115,16 +115,6 @@ class Tools:
         except Exception as e:
             logger.error(f"Error calling specialty API: {str(e)}")
             return {"error": str(e)}
-
-    def _collect_specialty_parameters(self) -> Dict[str, str]:
-        """
-        Collect parameters for specialty API call from user if not provided.
-
-        Returns:
-            A dictionary of parameters.
-        """
-        # Use the parameter collection helper
-        return ParameterCollector.collect_specialty_parameters()
     
     # APPOINTMENT-RELATED TOOLS
     
@@ -152,16 +142,16 @@ class Tools:
         
         Args:
             parameters: Parameters for the search (e.g., {"id_number": "DD15021998"}).
-                       If None, prompt user for inputs.
+                       If None, returns parameter requirements.
             
         Returns:
-            Search results
+            Search results or parameter requirements
         """
-        if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("search_by_id_number")
+        if parameters is None or not parameters.get("id_number"):
+            return ParameterCollector.get_parameter_requirements("search_by_id_number")
         
         if not ParameterCollector.validate_parameters("search_by_id_number", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("search_by_id_number")
             
         try:
             id_number = parameters.get("id_number", "DD15021998")
@@ -231,7 +221,7 @@ class Tools:
         Get user dataset for appointments.
         
         Args:
-            parameters: Parameters for the dataset query. If None, prompt user for inputs.
+            parameters: Parameters for the dataset query. If None, returns parameter requirements.
                 - date_from: Start date (default: today)
                 - date_to: End date (default: today)
                 - resource_type: Resource type (default: 1)
@@ -242,17 +232,22 @@ class Tools:
                 - to_time: To time (optional)
             
         Returns:
-            User dataset
+            User dataset or parameter requirements
         """
         if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("get_user_dataset")
+            parameters = {}
             
+        # Auto-fill missing required parameters with defaults
+        today = datetime.now().strftime("%Y-%m-%d")
+        parameters.setdefault("date_from", today)
+        parameters.setdefault("date_to", today)
+        parameters.setdefault("resource_type", "1")
+        
         if not ParameterCollector.validate_parameters("get_user_dataset", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("get_user_dataset")
             
         try:
             # Extract parameters with defaults
-            today = datetime.now().strftime("%Y-%m-%d")
             date_from = parameters.get("date_from", today)
             date_to = parameters.get("date_to", today)
             resource_type = parameters.get("resource_type", "1")
@@ -282,22 +277,27 @@ class Tools:
         Get appointment session slots.
         
         Args:
-            parameters: Parameters for the slots query. If None, prompt user for inputs.
+            parameters: Parameters for the slots query. If None, returns parameter requirements.
                 - resource_id: Resource ID (default: 2)
                 - session_date: Session date (default: today)
                 - session_id: Session ID (default: 363)
             
         Returns:
-            Session slots
+            Session slots or parameter requirements
         """
         if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("get_session_slots")
+            parameters = {}
             
+        # Auto-fill missing parameters with defaults
+        today = datetime.now().strftime("%Y-%m-%d")
+        parameters.setdefault("resource_id", "2")
+        parameters.setdefault("session_date", today)
+        parameters.setdefault("session_id", "363")
+        
         if not ParameterCollector.validate_parameters("get_session_slots", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("get_session_slots")
             
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
             resource_id = parameters.get("resource_id", "2")
             session_date = parameters.get("session_date", today)
             session_id = parameters.get("session_id", "363")
@@ -314,7 +314,7 @@ class Tools:
         Create a walk-in appointment.
         
         Args:
-            parameters: Parameters for creating the walk-in. If None, prompt user for inputs.
+            parameters: Parameters for creating the walk-in. If None, returns parameter requirements.
                 - resource_id: Resource ID (default: 2)
                 - session_id: Session ID (default: 363)
                 - session_date: Session date (default: today)
@@ -322,16 +322,23 @@ class Tools:
                 - patient_id: Patient ID (default: 3598)
             
         Returns:
-            Walk-in creation result
+            Walk-in creation result or parameter requirements
         """
         if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("create_walkin")
+            parameters = {}
             
+        # Auto-fill missing parameters with defaults
+        today = datetime.now().strftime("%Y-%m-%d")
+        parameters.setdefault("resource_id", "2")
+        parameters.setdefault("session_id", "363")
+        parameters.setdefault("session_date", today)
+        parameters.setdefault("from_time", "07%3A10%3A00")
+        parameters.setdefault("patient_id", "3598")
+        
         if not ParameterCollector.validate_parameters("create_walkin", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("create_walkin")
             
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
             resource_id = parameters.get("resource_id", "2")
             session_id = parameters.get("session_id", "363")
             session_date = parameters.get("session_date", today)
@@ -368,17 +375,17 @@ class Tools:
         Create a visit from an appointment.
         
         Args:
-            parameters: Parameters for creating the visit. If None, prompt user for inputs.
+            parameters: Parameters for creating the visit. If None, returns parameter requirements.
                 - appointment_id: Appointment ID to create visit from
             
         Returns:
-            Visit creation result
+            Visit creation result or parameter requirements
         """
-        if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("create_visit")
-            
+        if parameters is None or not parameters.get("appointment_id"):
+            return ParameterCollector.get_parameter_requirements("create_visit")
+        
         if not ParameterCollector.validate_parameters("create_visit", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("create_visit")
             
         try:
             appointment_id = parameters.get("appointment_id", "1820")
@@ -394,17 +401,17 @@ class Tools:
         Get patient journey information.
         
         Args:
-            parameters: Parameters for the patient journey. If None, prompt user for inputs.
+            parameters: Parameters for the patient journey. If None, returns parameter requirements.
                 - visit_id: Visit ID to get journey for
             
         Returns:
-            Patient journey information
+            Patient journey information or parameter requirements
         """
-        if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("get_patient_journey")
-            
+        if parameters is None or not parameters.get("visit_id"):
+            return ParameterCollector.get_parameter_requirements("get_patient_journey")
+        
         if not ParameterCollector.validate_parameters("get_patient_journey", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("get_patient_journey")
             
         try:
             visit_id = parameters.get("visit_id", "3502")
@@ -420,19 +427,25 @@ class Tools:
         Get follow-up appointment information.
         
         Args:
-            parameters: Parameters for the follow-up query. If None, prompt user for inputs.
+            parameters: Parameters for the follow-up query. If None, returns parameter requirements.
                 - patient_id: Patient ID
                 - date_from: Start date
                 - date_to: End date
             
         Returns:
-            Follow-up appointment information
+            Follow-up appointment information or parameter requirements
         """
         if parameters is None:
-            parameters = ParameterCollector.collect_appointment_parameters("get_appointment_followup")
+            parameters = {}
             
+        # Auto-fill missing parameters with defaults
+        today = datetime.now().strftime("%Y-%m-%d")
+        parameters.setdefault("patient_id", "3598")
+        parameters.setdefault("date_from", today)
+        parameters.setdefault("date_to", today)
+        
         if not ParameterCollector.validate_parameters("get_appointment_followup", parameters):
-            return {"error": "Missing required parameters"}
+            return ParameterCollector.get_parameter_requirements("get_appointment_followup")
             
         try:
             patient_id = parameters.get("patient_id", "3598")
@@ -449,21 +462,106 @@ class Tools:
 
 class ParameterCollector:
     """
-    Utility class for collecting required parameters from users.
+    Utility class for handling parameter requirements for API-based interactions.
     """
 
     @staticmethod
-    def collect_specialty_parameters() -> Dict[str, str]:
+    def get_parameter_requirements(tool_name: str) -> Dict[str, Any]:
         """
-        Collect parameters for specialty lookup.
-        For web environments, returns default parameters that will trigger a general search.
-
+        Get parameter requirements for a tool in API-friendly format.
+        
+        Args:
+            tool_name: Name of the tool requiring parameters.
+            
         Returns:
-            Dictionary with specialty query parameters.
+            Dictionary with parameter requirements and user-friendly message.
         """
-        # In web environment, return default that will show all specialties
-        return {"query": "all available specialties"}
-    
+        requirements = {
+            "search_by_id_number": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["id_number"],
+                "parameter_descriptions": {
+                    "id_number": "Patient ID number (e.g., 'DD15021998')"
+                },
+                "user_message": "I need a patient ID number to search for the patient. Please provide the patient ID number."
+            },
+            "get_user_dataset": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["date_from", "date_to", "resource_type"],
+                "optional_parameters": ["specialty_id", "resource_id", "clinic_id", "from_time", "to_time"],
+                "parameter_descriptions": {
+                    "date_from": "Start date (YYYY-MM-DD format)",
+                    "date_to": "End date (YYYY-MM-DD format)",
+                    "resource_type": "Resource type (1 for Doctor, 2 for Room)",
+                    "specialty_id": "Specialty ID (optional)",
+                    "resource_id": "Resource ID (optional)",
+                    "clinic_id": "Clinic ID (optional)"
+                },
+                "user_message": "I can search for appointments with today's date and default settings. If you need specific dates or resources, please provide: date range (from/to dates), resource type (1=Doctor, 2=Room), and optionally specialty ID, resource ID, or clinic ID."
+            },
+            "get_session_slots": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["resource_id", "session_date", "session_id"],
+                "parameter_descriptions": {
+                    "resource_id": "Doctor/Resource ID",
+                    "session_date": "Session date (YYYY-MM-DD format)",
+                    "session_id": "Session ID"
+                },
+                "user_message": "I can show available appointment slots with default settings. If you need specific slots, please provide: Doctor/Resource ID, session date (YYYY-MM-DD), and session ID."
+            },
+            "create_walkin": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["resource_id", "session_id", "session_date", "from_time", "patient_id"],
+                "parameter_descriptions": {
+                    "resource_id": "Doctor/Resource ID",
+                    "session_id": "Session ID",
+                    "session_date": "Appointment date (YYYY-MM-DD format)",
+                    "from_time": "Preferred time (HH:MM:SS format)",
+                    "patient_id": "Patient ID"
+                },
+                "user_message": "I can create a walk-in appointment with default settings. If you need specific details, please provide: Doctor/Resource ID, session ID, appointment date, preferred time, and patient ID."
+            },
+            "create_visit": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["appointment_id"],
+                "parameter_descriptions": {
+                    "appointment_id": "Appointment ID to create visit from"
+                },
+                "user_message": "I need an appointment ID to create a visit. Please provide the appointment ID."
+            },
+            "get_patient_journey": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["visit_id"],
+                "parameter_descriptions": {
+                    "visit_id": "Visit ID to get journey information for"
+                },
+                "user_message": "I need a visit ID to show the patient journey. Please provide the visit ID."
+            },
+            "get_appointment_followup": {
+                "needs_parameters": True,
+                "tool_name": tool_name,
+                "required_parameters": ["patient_id", "date_from", "date_to"],
+                "parameter_descriptions": {
+                    "patient_id": "Patient ID",
+                    "date_from": "Start date (YYYY-MM-DD format)",
+                    "date_to": "End date (YYYY-MM-DD format)"
+                },
+                "user_message": "I can search for follow-up appointments with default patient ID and today's date. If you need specific details, please provide: patient ID and date range (from/to dates)."
+            }
+        }
+        
+        return requirements.get(tool_name, {
+            "needs_parameters": True,
+            "tool_name": tool_name,
+            "user_message": f"I need additional information to complete the {tool_name.replace('_', ' ')} request. Please provide the required parameters."
+        })
+
     @staticmethod
     def get_parameter_prompt(tool_name: str) -> str:
         """
@@ -475,110 +573,8 @@ class ParameterCollector:
         Returns:
             String prompt to show to the user.
         """
-        prompts = {
-            "search_by_id_number": "I need a patient ID number to search. Please provide the patient ID (e.g., 'DD15021998').",
-            "get_user_dataset": "To search for appointments, I need: date range (from/to dates), resource type (1=Doctor, 2=Room), and optionally specialty ID, resource ID, or clinic ID. Please provide these details.",
-            "get_session_slots": "To find available appointment slots, I need: Doctor/Resource ID, session date (YYYY-MM-DD), and session ID. Please provide these details.",
-            "create_walkin": "To create a walk-in appointment, I need: Doctor/Resource ID, session ID, appointment date, preferred time, and patient ID. Please provide these details.",
-            "create_visit": "To create a visit, I need an appointment ID. Please provide the appointment ID.",
-            "get_patient_journey": "To view patient journey, I need a visit ID. Please provide the visit ID.",
-            "get_appointment_followup": "To search for follow-up appointments, I need: patient ID and date range (from/to dates). Please provide these details."
-        }
-        return prompts.get(tool_name, "I need additional information to complete this request. Please provide the required parameters.")
-
-    @staticmethod
-    def collect_appointment_parameters(tool_name: str) -> Dict[str, Any]:
-        """
-        Collect parameters for appointment-related tools.
-
-        Args:
-            tool_name: Name of the tool requiring parameters.
-
-        Returns:
-            Dictionary with collected parameters.
-        """
-        print(f"\n=== {tool_name.replace('_', ' ').title()} ===")
-        
-        if tool_name == "search_by_id_number":
-            id_number = input("Enter patient ID number (e.g., 'DD15021998'): ").strip()
-            return {"id_number": id_number or "DD15021998"}
-        
-        elif tool_name == "get_user_dataset":
-            print("Please provide the following information for appointments search:")
-            date_from = input("From date (YYYY-MM-DD, press Enter for today): ").strip()
-            date_to = input("To date (YYYY-MM-DD, press Enter for today): ").strip()
-            resource_type = input("Resource type (1=Doctor, 2=Room, press Enter for 1): ").strip()
-            specialty_id = input("Specialty ID (optional, press Enter to skip): ").strip()
-            resource_id = input("Resource ID (optional, press Enter to skip): ").strip()
-            clinic_id = input("Clinic ID (optional, press Enter to skip): ").strip()
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            return {
-                "date_from": date_from or today,
-                "date_to": date_to or today,
-                "resource_type": resource_type or "1",
-                "specialty_id": specialty_id or None,
-                "resource_id": resource_id or None,
-                "clinic_id": clinic_id or None
-            }
-        
-        elif tool_name == "get_session_slots":
-            print("Please provide information for available appointment slots:")
-            resource_id = input("Doctor/Resource ID (press Enter for default '2'): ").strip()
-            session_date = input("Session date (YYYY-MM-DD, press Enter for today): ").strip()
-            session_id = input("Session ID (press Enter for default '363'): ").strip()
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            return {
-                "resource_id": resource_id or "2",
-                "session_date": session_date or today,
-                "session_id": session_id or "363"
-            }
-        
-        elif tool_name == "create_walkin":
-            print("Please provide information for walk-in appointment:")
-            resource_id = input("Doctor/Resource ID (press Enter for default '2'): ").strip()
-            session_id = input("Session ID (press Enter for default '363'): ").strip()
-            session_date = input("Appointment date (YYYY-MM-DD, press Enter for today): ").strip()
-            from_time = input("Preferred time (HH:MM:SS, press Enter for '07:10:00'): ").strip()
-            patient_id = input("Patient ID (press Enter for default '3598'): ").strip()
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            # URL encode the time
-            time_formatted = from_time or "07:10:00"
-            time_encoded = time_formatted.replace(":", "%3A")
-            
-            return {
-                "resource_id": resource_id or "2",
-                "session_id": session_id or "363",
-                "session_date": session_date or today,
-                "from_time": time_encoded,
-                "patient_id": patient_id or "3598"
-            }
-        
-        elif tool_name == "create_visit":
-            appointment_id = input("Enter appointment ID to create visit from (press Enter for default '1820'): ").strip()
-            return {"appointment_id": appointment_id or "1820"}
-        
-        elif tool_name == "get_patient_journey":
-            visit_id = input("Enter visit ID to view patient journey (press Enter for default '3502'): ").strip()
-            return {"visit_id": visit_id or "3502"}
-        
-        elif tool_name == "get_appointment_followup":
-            print("Please provide information for follow-up appointments:")
-            patient_id = input("Patient ID (press Enter for default '3598'): ").strip()
-            date_from = input("From date (YYYY-MM-DD, press Enter for today): ").strip()
-            date_to = input("To date (YYYY-MM-DD, press Enter for today): ").strip()
-            
-            today = datetime.now().strftime("%Y-%m-%d")
-            return {
-                "patient_id": patient_id or "3598",
-                "date_from": date_from or today,
-                "date_to": date_to or today
-            }
-        
-        # Default case - return empty dict
-        return {}
+        requirements = ParameterCollector.get_parameter_requirements(tool_name)
+        return requirements.get("user_message", f"I need additional information to complete this {tool_name.replace('_', ' ')} request.")
 
     @staticmethod
     def validate_parameters(tool_name: str, parameters: Dict[str, Any]) -> bool:

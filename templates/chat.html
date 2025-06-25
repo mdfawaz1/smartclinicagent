@@ -348,6 +348,37 @@
         .message + .message {
             margin-top: 16px;
         }
+
+        .parameter-actions {
+            margin-top: 12px;
+            padding: 12px;
+            background-color: rgba(66, 135, 245, 0.1);
+            border-radius: 8px;
+            border-left: 3px solid var(--primary-color);
+        }
+
+        .parameter-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .param-btn {
+            background-color: white;
+            border: 1px solid var(--primary-color);
+            color: var(--primary-color);
+            padding: 4px 10px;
+            border-radius: 15px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .param-btn:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -576,7 +607,13 @@
             // Create message with identical styling except for class
             const message = document.createElement("div");
             message.className = isUser ? "user-message message" : "agent-message message";
-            message.innerText = text;
+            
+            // Check if this is a parameter request from the agent
+            if (!isUser && isParameterRequest(text)) {
+                message.innerHTML = formatParameterRequest(text);
+            } else {
+                message.innerText = text;
+            }
             
             container.appendChild(message);
             chatContainer.appendChild(container);
@@ -585,6 +622,111 @@
             chatContainer.scrollTop = chatContainer.scrollHeight;
         }
         
+        // Function to detect if a message is requesting parameters
+        function isParameterRequest(text) {
+            const parameterIndicators = [
+                "I need a", "Please provide", "I need:", "Required:", 
+                "patient ID", "appointment ID", "visit ID", "date range",
+                "Doctor/Resource ID", "session date", "session ID"
+            ];
+            
+            return parameterIndicators.some(indicator => 
+                text.toLowerCase().includes(indicator.toLowerCase())
+            );
+        }
+        
+        // Function to format parameter requests with helpful buttons
+        function formatParameterRequest(text) {
+            let formattedText = text;
+            
+            // Add quick action buttons for common parameter types
+            const quickActions = [];
+            
+            // Patient ID quick actions
+            if (text.toLowerCase().includes("patient id")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Quick examples:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('DD15021998')">DD15021998</button>
+                            <button class="param-btn" onclick="fillParameter('AA12345678')">AA12345678</button>
+                            <button class="param-btn" onclick="fillParameter('BB98765432')">BB98765432</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            // Appointment ID quick actions
+            if (text.toLowerCase().includes("appointment id")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Quick examples:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('1820')">1820</button>
+                            <button class="param-btn" onclick="fillParameter('1821')">1821</button>
+                            <button class="param-btn" onclick="fillParameter('1822')">1822</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            // Visit ID quick actions
+            if (text.toLowerCase().includes("visit id")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Quick examples:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('3502')">3502</button>
+                            <button class="param-btn" onclick="fillParameter('3503')">3503</button>
+                            <button class="param-btn" onclick="fillParameter('3504')">3504</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            // Date range quick actions
+            if (text.toLowerCase().includes("date") || text.toLowerCase().includes("range")) {
+                const today = new Date().toISOString().split('T')[0];
+                const tomorrow = new Date(Date.now() + 24*60*60*1000).toISOString().split('T')[0];
+                
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Quick dates:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('${today}')">Today (${today})</button>
+                            <button class="param-btn" onclick="fillParameter('${tomorrow}')">Tomorrow (${tomorrow})</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            // Resource type quick actions
+            if (text.toLowerCase().includes("resource type")) {
+                quickActions.push(`
+                    <div class="parameter-actions">
+                        <small>💡 <strong>Resource types:</strong></small>
+                        <div class="parameter-buttons">
+                            <button class="param-btn" onclick="fillParameter('Resource type 1 (Doctor)')">1 (Doctor)</button>
+                            <button class="param-btn" onclick="fillParameter('Resource type 2 (Room)')">2 (Room)</button>
+                        </div>
+                    </div>
+                `);
+            }
+            
+            if (quickActions.length > 0) {
+                formattedText += '<br><br>' + quickActions.join('<br>');
+            }
+            
+            return formattedText;
+        }
+        
+        // Function to fill parameter from quick action button
+        function fillParameter(value) {
+            const userInput = document.getElementById("user-input");
+            userInput.value = value;
+            userInput.focus();
+        }
+
         // Function to toggle debug information
         function toggleDebug() {
             const debugLog = document.getElementById("debug-log");
